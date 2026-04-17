@@ -80,10 +80,10 @@ pub async fn ready(bd: &Bd) -> Result<Value> {
 
 /// Dispatch a ready bead to a fresh thurbox session.
 ///
-/// Reads `metadata.repo_path` (required), `metadata.role`, and
-/// `metadata.skills` (comma-separated) off the bead. Records the
-/// bead↔session mapping in bd kv. Rolls the session back if any of the
-/// kv writes fail.
+/// Resolves the working directory via [`resolve_repo_path`]; reads
+/// `metadata.role` and `metadata.skills` (comma-separated) off the
+/// bead. Records the bead↔session mapping in bd kv. Rolls the session
+/// back if any of the kv writes fail.
 pub async fn dispatch(bd: &Bd, tx: &Client, opts: DispatchOpts) -> Result<DispatchOutcome> {
     let bead = resolve_target(bd, opts.bd_id.as_deref()).await?;
     let bd_id = bead.id.clone();
@@ -314,6 +314,30 @@ mod tests {
         assert_eq!(resolve_repo_path(None, &HashMap::new(), None), None);
         // Empty strings don't count as set.
         assert_eq!(resolve_repo_path(Some(""), &HashMap::new(), None), None);
+    }
+
+    #[test]
+    fn resolve_repo_path_empty_layer_short_circuits_rather_than_falling_through() {
+        // An empty value at any layer is treated as explicitly "none" —
+        // it stops the fallback chain rather than passing through to
+        // the next source. Intentional: if a caller explicitly sets a
+        // layer to empty, we treat that as a misconfiguration, not a
+        // signal to look elsewhere.
+        let mut md_empty = HashMap::new();
+        md_empty.insert("repo_path".to_owned(), String::new());
+        assert_eq!(
+            resolve_repo_path(None, &md_empty, Some("/from/env")),
+            None,
+            "empty metadata should not fall through to env default",
+        );
+
+        let mut md_real = HashMap::new();
+        md_real.insert("repo_path".to_owned(), "/from/bead".to_owned());
+        assert_eq!(
+            resolve_repo_path(Some(""), &md_real, Some("/from/env")),
+            None,
+            "empty override should not fall through to metadata",
+        );
     }
 
     #[test]
