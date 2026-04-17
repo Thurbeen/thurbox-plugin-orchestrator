@@ -1,0 +1,28 @@
+# Reference gastown city config for the thurbox admin workspace.
+# Copied by scripts/install.sh to ~/.local/share/thurbox/admin/city.toml
+# only if no city.toml exists yet (never overwritten).
+
+[workspace]
+name = "thurbox-admin"
+provider = "claude"
+
+[session]
+provider = "exec:/home/magicletur/.local/share/thurbox/admin/plugins/gastown/bin/gc-session-thurbox"
+
+[beads]
+provider = "bd"
+
+[daemon]
+patrol_interval = "15s"
+shutdown_timeout = "10s"
+
+[[agent]]
+name = "thurbox-worker"
+description = "Thurbox-hosted polecat that processes one bd item and exits."
+start_command = "true"
+prompt_template = "agents/thurbox-worker/prompt.template.md"
+nudge = "Read your assigned bd item and run it."
+work_query = "bd --db .beads/ list --json --status ready --assigned $GC_AGENT"
+session_setup_script = "scripts/thurbox-wait-result.sh"
+idle_timeout = "30m"
+max_active_sessions = 1

@@ -1,0 +1,10 @@
+name = "gastown"
+version = "0.1.0"
+thurbox_plugin_api = 1
+description = "Drives gastown from thurbox sessions and bundles the thurbox session rig for gastown."
+author = "Thurbeen"
+
+[process]
+exec = "bin/thurbox-plugin-gastown"
+capabilities = ["mcp-tools"]
+activation_events = ["onStartupFinished"]

@@ -1,20 +1,19 @@
 [package]
-name = "orchestrator-core"
+name = "gc-session-thurbox"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Shared library for the gastown-bridge thurbox plugin and rig"
+description = "Gastown exec session provider that spawns workers inside thurbox sessions"
+
+[[bin]]
+name = "gc-session-thurbox"
+path = "src/main.rs"
 
 [dependencies]
-serde = { workspace = true }
+orchestrator-core = { workspace = true }
 serde_json = { workspace = true }
-toml = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
-thiserror = { workspace = true }
-
-[dev-dependencies]
-tempfile = { workspace = true }
