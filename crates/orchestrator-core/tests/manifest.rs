@@ -10,9 +10,9 @@ const MANIFEST_SRC: &str = include_str!("../../../plugin/thurbox-plugin.toml");
 #[test]
 fn plugin_manifest_parses_and_matches_api_version() {
     let m = Manifest::from_toml(MANIFEST_SRC).expect("manifest parses");
-    assert_eq!(m.name, "gastown");
+    assert_eq!(m.name, "orchestrator");
     assert_eq!(m.thurbox_plugin_api, PLUGIN_API_VERSION);
-    assert_eq!(m.process.exec, "bin/thurbox-plugin-gastown");
+    assert_eq!(m.process.exec, "bin/thurbox-plugin-orchestrator");
     assert!(m.process.capabilities.contains(&"mcp-tools".to_owned()));
     assert!(m
         .process

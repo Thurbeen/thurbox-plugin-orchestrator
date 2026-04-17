@@ -1,48 +1,74 @@
-# thurbox-plugin-gastown
+# thurbox-plugin-orchestrator
 
-A [thurbox](https://github.com/Thurbeen/thurbox) plugin that bridges
-thurbox sessions and [gastown](https://github.com/gastownhall/gastown).
+A [thurbox](https://github.com/Thurbeen/thurbox) plugin that drives a
+beads-backed multi-agent orchestrator. One ready
+[`bd`](https://github.com/gastownhall/beads) item → one fresh thurbox
+session → one worker that emits a result sentinel.
 
-The plugin is two things in one repo:
-
-- **A thurbox plugin** (`thurbox-plugin-gastown`) — long-running JSON-RPC
-  daemon under `~/.local/share/thurbox/admin/plugins/gastown/` that
-  exposes `gastown.*` MCP tools so admin/Claude sessions can drive
-  gastown conversationally.
-- **A gastown exec session provider** (`gc-session-thurbox`) — per-op
-  fork/exec binary that gastown invokes to spawn workers *inside*
-  thurbox sessions, plus a `thurbox-worker-wrap` helper that polls the
-  session for the result sentinel and closes the matching `bd` item.
+The orchestrator itself is a Claude session (not a daemon) using these
+MCP tools in a loop. The plugin's job is to expose the small surface
+that loop needs and stay otherwise out of the way.
 
 ## Status
 
-Pre-MVP. Modules compile and unit tests pass; install scripts and
-end-to-end verification are still in progress.
+Pre-MVP. The plugin daemon, `bd` wrapper, and `thurbox-mcp` client
+compile and are unit tested. End-to-end exercise depends on the
+upstream thurbox plugin process runtime landing — see *Known blockers*.
 
 ## Layout
 
 ```text
 crates/
-  orchestrator-core/         # shared library: jsonrpc, thurbox, gastown,
-                             # plugin, rig, sentinel
-  thurbox-plugin-gastown/    # plugin daemon binary
-  gc-session-thurbox/        # gastown exec session provider binary
-  thurbox-worker-wrap/       # session_setup_script helper
-plugin/                      # what gets copied into
-                             # ~/.local/share/thurbox/admin/plugins/gastown/
-examples/admin/              # reference city.toml
-scripts/                     # install + bootstrap helpers
+  orchestrator-core/                 # shared library:
+                                     #   bd, jsonrpc, orch, plugin,
+                                     #   sentinel, thurbox
+  thurbox-plugin-orchestrator/       # plugin daemon binary
+plugin/                              # copied to
+                                     # ~/.local/share/thurbox/admin/plugins/orchestrator/
+examples/skills/                     # reference SKILL.md files for the
+                                     # orchestrator and worker sessions
+scripts/                             # install helper
 ```
+
+## Two-session model
+
+| session                | role                                                                |
+|------------------------|---------------------------------------------------------------------|
+| **admin / creator**    | human + Claude, uses raw `bd create` / `bd update` to file work     |
+| **admin / orchestrator** | Claude with the `orchestrate` skill — drains ready bd items via the `orch.*` MCP tools |
+| **worker (per bead)**  | spawned by the plugin, runs the `orchestrate-worker` skill, emits `===RESULT===\n{json}` |
 
 ## MCP tools exposed
 
-| tool                   | wraps                                            |
-|------------------------|--------------------------------------------------|
-| `gastown.status`       | `gt status` in admin/                            |
-| `gastown.list_agents`  | `gt list agents` (parsed JSON)                   |
-| `gastown.sling`        | `gt sling <agent> <bd-id>`                       |
-| `gastown.show_bead`    | `gt bead show <bd-id>`                           |
-| `gastown.tail_events`  | `gt events tail --since=<dur>`                   |
+| tool                  | purpose                                                                 |
+|-----------------------|-------------------------------------------------------------------------|
+| `orch.ready`          | List ready bd items in priority order.                                  |
+| `orch.dispatch`       | Spawn a thurbox session for one ready item, send the worker prompt.    |
+| `orch.poll`           | Capture session output and report `running`/`ok`/`error`/`malformed`.  |
+| `orch.close`          | Close the bead and (default) delete the session.                        |
+| `orch.list_active`    | Inspect currently dispatched bd↔session pairs.                          |
+
+State lives in `bd kv`:
+- `orch:bead:<bd-id>` → thurbox session id
+- `orch:session:<uuid>` → bd id
+
+## Per-bead config
+
+Set on the bd item with `bd update <id> --set-metadata key=val`.
+
+| key         | required | meaning                                                          |
+|-------------|----------|------------------------------------------------------------------|
+| `repo_path` | yes      | working directory the worker session is spawned in               |
+| `role`      | no       | passed through to `create_session` (project role)                |
+| `skills`    | no       | comma-separated skill names attached to the worker session       |
+
+## Configuration
+
+| env var                  | default                                              |
+|--------------------------|------------------------------------------------------|
+| `THURBOX_ORCH_BD_DB`     | `~/.local/share/thurbox/admin/.beads/`               |
+| `THURBOX_ORCH_MCP_BIN`   | `thurbox-mcp` (resolved via `$PATH`)                 |
+| `THURBOX_ADMIN_ROOT`     | `~/.local/share/thurbox/admin` (used by `install.sh`) |
 
 ## Development
 
@@ -57,26 +83,45 @@ cargo build --all
 
 ```bash
 ./scripts/install.sh
-./scripts/bootstrap-admin.sh
 ```
 
-`install.sh` builds all three binaries, copies the `plugin/` tree to
-`~/.local/share/thurbox/admin/plugins/gastown/`, and seeds
-`examples/admin/city.toml` if no `city.toml` exists yet.
-`bootstrap-admin.sh` runs `gc init` idempotently.
+Then in thurbox:
+1. Restart so the plugin is picked up (or `register_plugin` via MCP).
+2. Register the orchestrator skills once:
+   ```bash
+   thurbox-mcp register_skill examples/skills/orchestrate/SKILL.md
+   thurbox-mcp register_skill examples/skills/orchestrate-worker/SKILL.md
+   ```
+3. From an admin session, drain work:
+   ```bash
+   bd --db ~/.local/share/thurbox/admin/.beads/ create "echo hello" --label demo
+   bd --db ~/.local/share/thurbox/admin/.beads/ update <id> \
+      --set-metadata repo_path=$HOME/scratch/hello
+   ```
+   Then ask the admin orchestrator session (with the `orchestrate`
+   skill loaded) to dispatch the ready item.
 
-## Relationship to the rest of the stack
+## Known blockers
 
-- **[thurbox](https://github.com/Thurbeen/thurbox)** — multi-session
-  Claude Code TUI. Loads this plugin from `admin/plugins/gastown/` and
-  routes `gastown.*` MCP calls to it.
-- **[gastown](https://github.com/gastownhall/gastown)** — the
-  orchestrator. We don't reimplement dispatch/poll/review/merge-queue;
-  we hook into gastown via its exec session provider protocol.
-- **[beads (`bd`)](https://github.com/gastownhall/beads)** — work
-  tracker. Workers close their assigned items from inside their thurbox
-  session via `bd close`, driven by the sentinel in
-  `thurbox-worker-wrap`.
+- **Thurbox plugin process runtime is forthcoming.** Plugin discovery
+  + manifests work today, but the host doesn't yet spawn `mcp-tools`
+  plugin processes and proxy their `mcp.list_tools` / `mcp.call`
+  surface. Until that lands, `orch.*` is reachable only by exercising
+  the plugin daemon directly over stdio.
+
+## Smoke test (no thurbox host needed)
+
+```bash
+printf '%s\n%s\n%s\n' \
+  '{"id":1,"op":"handshake","params":{"api_version":1,"plugin_name":"orchestrator","effective_configuration":{}}}' \
+  '{"id":2,"op":"mcp.list_tools","params":{}}' \
+  '{"id":3,"op":"stop","params":{}}' \
+  | THURBOX_ORCH_MCP_BIN=$(which thurbox-mcp) \
+    ~/.local/share/thurbox/admin/plugins/orchestrator/bin/thurbox-plugin-orchestrator
+```
+
+Three `{"id":…,"ok":true,…}` lines back; the second lists all five
+`orch.*` tools.
 
 ## License
 

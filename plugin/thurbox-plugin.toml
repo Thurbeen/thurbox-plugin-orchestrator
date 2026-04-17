@@ -1,10 +1,10 @@
-name = "gastown"
+name = "orchestrator"
 version = "0.1.0"
 thurbox_plugin_api = 1
-description = "Drives gastown from thurbox sessions and bundles the thurbox session rig for gastown."
+description = "Beads-driven multi-agent orchestrator. Dispatches one thurbox session per ready bd item."
 author = "Thurbeen"
 
 [process]
-exec = "bin/thurbox-plugin-gastown"
+exec = "bin/thurbox-plugin-orchestrator"
 capabilities = ["mcp-tools"]
 activation_events = ["onStartupFinished"]

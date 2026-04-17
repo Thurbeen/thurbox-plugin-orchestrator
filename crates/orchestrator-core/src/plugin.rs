@@ -1,15 +1,17 @@
 //! Thurbox plugin protocol surface (host-facing).
 //!
-//! The plugin daemon (binary `thurbox-plugin-gastown`) speaks
+//! The plugin daemon (binary `thurbox-plugin-orchestrator`) speaks
 //! line-delimited JSON-RPC to thurbox over stdio. This module owns:
 //!
 //! - the handshake envelope (api_version match against
 //!   `PLUGIN_API_VERSION`)
 //! - the `mcp.list_tools` / `mcp.call` dispatch table that exposes
-//!   the `gastown.*` tools
+//!   the `orch.*` tools
 //! - the `stop` op for orderly shutdown
 
-use crate::gastown::Cli as GastownCli;
+use crate::bd::Bd;
+use crate::orch::{self, CloseOpts, DispatchOpts};
+use crate::thurbox::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -88,70 +90,101 @@ pub struct ToolDescriptor {
 pub fn tool_catalog() -> Vec<ToolDescriptor> {
     vec![
         ToolDescriptor {
-            name: "gastown.status",
-            description: "Show gastown city status (`gt status`).",
+            name: "orch.ready",
+            description: "List ready bd items in priority order.",
             input_schema: json!({ "type": "object", "properties": {} }),
         },
         ToolDescriptor {
-            name: "gastown.list_agents",
-            description: "List configured gastown agents as JSON.",
-            input_schema: json!({ "type": "object", "properties": {} }),
-        },
-        ToolDescriptor {
-            name: "gastown.sling",
-            description: "Dispatch a bd item to an agent (`gt sling <agent> <bd-id>`).",
+            name: "orch.dispatch",
+            description: "Dispatch a ready bd item to a fresh thurbox session. \
+                If `bd_id` is omitted, the highest-priority ready item is used. \
+                The bd item must have `metadata.repo_path` set (or pass `repo_path_override`).",
             input_schema: json!({
                 "type": "object",
-                "required": ["agent", "bd_id"],
                 "properties": {
-                    "agent": { "type": "string" },
-                    "bd_id": { "type": "string" }
+                    "bd_id": { "type": "string" },
+                    "repo_path_override": { "type": "string" },
+                    "role_override": { "type": "string" }
                 }
             }),
         },
         ToolDescriptor {
-            name: "gastown.show_bead",
-            description: "Show a bd item by id (`gt bead show <bd-id>`).",
+            name: "orch.poll",
+            description: "Capture a session's recent output and report whether the worker has \
+                emitted the `===RESULT===` sentinel. Returns status one of running|ok|error|malformed.",
+            input_schema: json!({
+                "type": "object",
+                "required": ["session_id"],
+                "properties": {
+                    "session_id": { "type": "string" },
+                    "lines": { "type": "integer", "default": 200 }
+                }
+            }),
+        },
+        ToolDescriptor {
+            name: "orch.close",
+            description: "Close a bd item and (by default) delete the thurbox session that was working on it.",
             input_schema: json!({
                 "type": "object",
                 "required": ["bd_id"],
-                "properties": { "bd_id": { "type": "string" } }
+                "properties": {
+                    "bd_id": { "type": "string" },
+                    "reason": { "type": "string" },
+                    "delete_session": { "type": "boolean", "default": true }
+                }
             }),
         },
         ToolDescriptor {
-            name: "gastown.tail_events",
-            description: "Tail recent gastown events (`gt events tail --since=<dur>`).",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "since": { "type": "string", "default": "5m" }
-                }
-            }),
+            name: "orch.list_active",
+            description: "List currently dispatched bd↔session pairs (intersection of \
+                `tx.list_sessions` and `orch:session:*` kv mappings).",
+            input_schema: json!({ "type": "object", "properties": {} }),
         },
     ]
 }
 
-pub async fn dispatch_tool(cli: &GastownCli, name: &str, params: &Value) -> Result<Value, String> {
+pub async fn dispatch_tool(
+    bd: &Bd,
+    tx: &Client,
+    name: &str,
+    params: &Value,
+) -> Result<Value, String> {
     let to_err = |e: anyhow::Error| e.to_string();
-    let stdout = match name {
-        "gastown.status" => cli.status().await.map_err(to_err)?,
-        "gastown.list_agents" => cli.list_agents().await.map_err(to_err)?,
-        "gastown.sling" => {
-            let agent = required_str(params, "agent")?;
+    match name {
+        "orch.ready" => orch::ready(bd).await.map_err(to_err),
+        "orch.dispatch" => {
+            let opts: DispatchOpts =
+                serde_json::from_value(params.clone()).map_err(|e| e.to_string())?;
+            orch::dispatch(bd, tx, opts)
+                .await
+                .map(|o| serde_json::to_value(o).unwrap_or(Value::Null))
+                .map_err(to_err)
+        }
+        "orch.poll" => {
+            let session_id = required_str(params, "session_id")?;
+            let lines = params.get("lines").and_then(Value::as_u64).unwrap_or(200) as u32;
+            orch::poll(bd, tx, session_id, lines)
+                .await
+                .map(|o| serde_json::to_value(o).unwrap_or(Value::Null))
+                .map_err(to_err)
+        }
+        "orch.close" => {
             let bd_id = required_str(params, "bd_id")?;
-            cli.sling(agent, bd_id).await.map_err(to_err)?
+            let opts = CloseOpts {
+                reason: optional_str(params, "reason").map(str::to_owned),
+                delete_session: params
+                    .get("delete_session")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+            };
+            orch::close(bd, tx, bd_id, opts)
+                .await
+                .map(|o| serde_json::to_value(o).unwrap_or(Value::Null))
+                .map_err(to_err)
         }
-        "gastown.show_bead" => {
-            let bd_id = required_str(params, "bd_id")?;
-            cli.show_bead(bd_id).await.map_err(to_err)?
-        }
-        "gastown.tail_events" => {
-            let since = optional_str(params, "since").unwrap_or("5m");
-            cli.tail_events(since).await.map_err(to_err)?
-        }
-        other => return Err(format!("unknown tool {other}")),
-    };
-    Ok(json!({ "stdout": stdout }))
+        "orch.list_active" => orch::list_active(bd, tx).await.map_err(to_err),
+        other => Err(format!("unknown tool {other}")),
+    }
 }
 
 fn required_str<'a>(params: &'a Value, key: &str) -> Result<&'a str, String> {
@@ -173,7 +206,7 @@ mod tests {
     fn handshake_accepts_matching_api_version() {
         let req = HandshakeRequest {
             api_version: PLUGIN_API_VERSION,
-            plugin_name: "gastown".into(),
+            plugin_name: "orchestrator".into(),
             effective_configuration: Value::Null,
         };
         let resp = handshake(req).unwrap();
@@ -185,7 +218,7 @@ mod tests {
     fn handshake_rejects_mismatched_api_version() {
         let req = HandshakeRequest {
             api_version: 99,
-            plugin_name: "gastown".into(),
+            plugin_name: "orchestrator".into(),
             effective_configuration: Value::Null,
         };
         assert!(handshake(req).is_err());
@@ -194,8 +227,15 @@ mod tests {
     #[test]
     fn tool_catalog_has_expected_entries() {
         let names: Vec<&str> = tool_catalog().iter().map(|t| t.name).collect();
-        assert!(names.contains(&"gastown.status"));
-        assert!(names.contains(&"gastown.sling"));
-        assert!(names.contains(&"gastown.tail_events"));
+        assert_eq!(
+            names,
+            vec![
+                "orch.ready",
+                "orch.dispatch",
+                "orch.poll",
+                "orch.close",
+                "orch.list_active"
+            ]
+        );
     }
 }

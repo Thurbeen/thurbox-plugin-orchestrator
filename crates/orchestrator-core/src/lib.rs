@@ -1,17 +1,15 @@
-//! gastown-bridge core library.
+//! Shared library for the thurbox-plugin-orchestrator workspace.
 //!
-//! Shared modules used by the three binaries in this workspace:
-//!
-//! - `thurbox-plugin-gastown` — long-running thurbox plugin daemon that
-//!   exposes `gastown.*` MCP tools over the plugin JSON-RPC protocol.
-//! - `gc-session-thurbox` — gastown exec session provider that spawns
-//!   workers inside thurbox sessions.
-//! - `thurbox-worker-wrap` — `session_setup_script` that polls a
-//!   thurbox session for a sentinel and closes the bd item.
+//! - `bd` — async wrapper around the `bd` (beads) CLI.
+//! - `jsonrpc` — line-delimited JSON-RPC framing over stdio.
+//! - `orch` — orchestration logic: dispatch ready beads to thurbox sessions.
+//! - `plugin` — thurbox plugin protocol surface (handshake, tool catalog).
+//! - `sentinel` — `===RESULT===` parser used by workers to signal completion.
+//! - `thurbox` — long-lived `thurbox-mcp` subprocess client.
 
-pub mod gastown;
+pub mod bd;
 pub mod jsonrpc;
+pub mod orch;
 pub mod plugin;
-pub mod rig;
 pub mod sentinel;
 pub mod thurbox;

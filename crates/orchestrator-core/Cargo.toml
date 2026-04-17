@@ -6,7 +6,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Shared library for the gastown-bridge thurbox plugin and rig"
+description = "Shared library for the thurbox orchestrator plugin (bd CLI + thurbox-mcp + sentinel)"
 
 [dependencies]
 serde = { workspace = true }
