@@ -64,11 +64,12 @@ Set on the bd item with `bd update <id> --set-metadata key=val`.
 
 ## Configuration
 
-| env var                  | default                                              |
-|--------------------------|------------------------------------------------------|
-| `THURBOX_ORCH_BD_DB`     | `~/.local/share/thurbox/admin/.beads/`               |
-| `THURBOX_ORCH_MCP_BIN`   | `thurbox-mcp` (resolved via `$PATH`)                 |
-| `THURBOX_ADMIN_ROOT`     | `~/.local/share/thurbox/admin` (used by `install.sh`) |
+| env var                       | default                                              |
+|-------------------------------|------------------------------------------------------|
+| `THURBOX_ORCH_BD_DB`          | `~/.local/share/thurbox/admin/.beads/`               |
+| `THURBOX_ORCH_MCP_BIN`        | `thurbox-mcp` (resolved via `$PATH`)                 |
+| `THURBOX_ORCH_DEFAULT_REPO`   | unset — fallback `repo_path` when a bead has none    |
+| `THURBOX_ADMIN_ROOT`          | `~/.local/share/thurbox/admin` (used by `install.sh`) |
 
 ## Development
 

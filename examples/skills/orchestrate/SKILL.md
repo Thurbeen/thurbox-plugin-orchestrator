@@ -33,18 +33,37 @@ sessions directly — the plugin owns session lifecycle.
 4. For fan-out: call `orch.dispatch` N times in a row. The plugin does
    not enforce a max-concurrency cap — that judgment is yours.
 
-## Required bead metadata
+## Filing new work
 
-A bead can only be dispatched if it has `metadata.repo_path` set:
+When the user asks you to file a new item for the orchestrator to
+work, do it with plain `bd` — it's cheaper than a round-trip MCP
+call and keeps the contract in one place.
 
 ```bash
-bd update <bd-id> --set-metadata repo_path=$HOME/some/repo
-bd update <bd-id> --set-metadata role=worker
-bd update <bd-id> --set-metadata skills=ship-pr,run-tests
+bd --db "$THURBOX_ORCH_BD_DB" create "<title>" --label <label>
+# The id is printed on the last line; reuse it below.
+bd --db "$THURBOX_ORCH_BD_DB" update <bd-id> \
+  --set-metadata repo_path="$HOME/some/repo" \
+  --set-metadata role=worker \
+  --set-metadata skills=ship-pr,run-tests
 ```
 
-If `repo_path` is missing, `orch.dispatch` errors loudly. Either fix
-the bead or pass `repo_path_override` for a one-off.
+Only `repo_path` is required (and even that can be omitted when the
+plugin has `THURBOX_ORCH_DEFAULT_REPO` set — see *repo_path resolution*
+below). `role` and `skills` are passed straight through to
+`create_session`.
+
+## repo_path resolution
+
+`orch.dispatch` resolves the worker's working directory in this order:
+
+1. `repo_path_override` on the dispatch call (one-off escape hatch).
+2. Bead `metadata.repo_path`.
+3. `THURBOX_ORCH_DEFAULT_REPO` env var on the plugin daemon.
+
+If none are set, dispatch errors. For the common case of "always work
+this one repo", set `THURBOX_ORCH_DEFAULT_REPO` once and skip the
+metadata entirely when filing.
 
 ## State invariants
 

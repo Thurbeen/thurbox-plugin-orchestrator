@@ -14,10 +14,11 @@ with one binary built from the parent repo:
 
 Configuration env vars (read by the daemon at startup):
 
-| env var                | default                                    |
-|------------------------|--------------------------------------------|
-| `THURBOX_ORCH_BD_DB`   | `~/.local/share/thurbox/admin/.beads/`     |
-| `THURBOX_ORCH_MCP_BIN` | `thurbox-mcp` (resolved via `$PATH`)       |
+| env var                     | default                                          |
+|-----------------------------|--------------------------------------------------|
+| `THURBOX_ORCH_BD_DB`        | `~/.local/share/thurbox/admin/.beads/`           |
+| `THURBOX_ORCH_MCP_BIN`      | `thurbox-mcp` (resolved via `$PATH`)             |
+| `THURBOX_ORCH_DEFAULT_REPO` | unset — fallback `repo_path` when a bead has none |
 
 See the repo's top-level [README](../README.md) for full context and
 two-session usage flow.

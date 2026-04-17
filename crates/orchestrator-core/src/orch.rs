@@ -14,10 +14,13 @@ use crate::thurbox::Client;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const KV_BEAD_PREFIX: &str = "orch:bead:";
 const KV_SESSION_PREFIX: &str = "orch:session:";
+const ENV_DEFAULT_REPO: &str = "THURBOX_ORCH_DEFAULT_REPO";
 
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct DispatchOpts {
@@ -85,17 +88,19 @@ pub async fn dispatch(bd: &Bd, tx: &Client, opts: DispatchOpts) -> Result<Dispat
     let bead = resolve_target(bd, opts.bd_id.as_deref()).await?;
     let bd_id = bead.id.clone();
 
-    let repo_path = opts
-        .repo_path_override
-        .clone()
-        .or_else(|| bead.metadata.get("repo_path").cloned())
-        .ok_or_else(|| {
-            anyhow!(
-                "bd item {bd_id} has no `repo_path` metadata; \
-                 set it with `bd update {bd_id} --set-metadata repo_path=<dir>` \
-                 or pass repo_path_override"
-            )
-        })?;
+    let env_default = env::var(ENV_DEFAULT_REPO).ok();
+    let repo_path = resolve_repo_path(
+        opts.repo_path_override.as_deref(),
+        &bead.metadata,
+        env_default.as_deref(),
+    )
+    .ok_or_else(|| {
+        anyhow!(
+            "bd item {bd_id} has no `repo_path`; \
+             set it with `bd update {bd_id} --set-metadata repo_path=<dir>`, \
+             pass repo_path_override, or set {ENV_DEFAULT_REPO}"
+        )
+    })?;
 
     let role = opts
         .role_override
@@ -230,6 +235,22 @@ async fn resolve_target(bd: &Bd, requested: Option<&str>) -> Result<Bead> {
     Ok(beads.remove(0))
 }
 
+/// Resolution order for the worker's working directory:
+/// 1. explicit `repo_path_override` on the dispatch call
+/// 2. bead `metadata.repo_path`
+/// 3. `THURBOX_ORCH_DEFAULT_REPO` env fallback (deployment default)
+fn resolve_repo_path(
+    override_: Option<&str>,
+    bead_metadata: &HashMap<String, String>,
+    env_default: Option<&str>,
+) -> Option<String> {
+    override_
+        .map(str::to_owned)
+        .or_else(|| bead_metadata.get("repo_path").cloned())
+        .or_else(|| env_default.map(str::to_owned))
+        .filter(|s| !s.is_empty())
+}
+
 fn parse_skills(raw: Option<&String>) -> Vec<String> {
     raw.map(|s| {
         s.split(',')
@@ -272,6 +293,28 @@ fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_repo_path_prefers_override_then_metadata_then_env() {
+        let mut md = HashMap::new();
+        md.insert("repo_path".to_owned(), "/from/bead".to_owned());
+
+        assert_eq!(
+            resolve_repo_path(Some("/from/override"), &md, Some("/from/env")).as_deref(),
+            Some("/from/override"),
+        );
+        assert_eq!(
+            resolve_repo_path(None, &md, Some("/from/env")).as_deref(),
+            Some("/from/bead"),
+        );
+        assert_eq!(
+            resolve_repo_path(None, &HashMap::new(), Some("/from/env")).as_deref(),
+            Some("/from/env"),
+        );
+        assert_eq!(resolve_repo_path(None, &HashMap::new(), None), None);
+        // Empty strings don't count as set.
+        assert_eq!(resolve_repo_path(Some(""), &HashMap::new(), None), None);
+    }
 
     #[test]
     fn parse_skills_handles_empty_and_csv() {

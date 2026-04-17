@@ -98,7 +98,8 @@ pub fn tool_catalog() -> Vec<ToolDescriptor> {
             name: "orch.dispatch",
             description: "Dispatch a ready bd item to a fresh thurbox session. \
                 If `bd_id` is omitted, the highest-priority ready item is used. \
-                The bd item must have `metadata.repo_path` set (or pass `repo_path_override`).",
+                repo_path resolves in order: `repo_path_override` > bead `metadata.repo_path` > \
+                `THURBOX_ORCH_DEFAULT_REPO` env var. Errors if none are set.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
