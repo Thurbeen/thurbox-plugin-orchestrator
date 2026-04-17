@@ -1,0 +1,17 @@
+[package]
+name = "thurbox-orchestrator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "CLI entry point for the thurbox orchestrator (scaffold — not ready for use)"
+
+[[bin]]
+name = "thurbox-orchestrator"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+orchestrator-core = { workspace = true }
