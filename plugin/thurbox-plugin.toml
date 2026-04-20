@@ -4,6 +4,33 @@ thurbox_plugin_api = 1
 description = "Beads-driven multi-agent orchestrator. Dispatches one thurbox session per ready bd item."
 author = "Thurbeen"
 
+# Static tool declarations let `list_plugin_tools` answer without
+# waking the daemon. Must stay in sync with `plugin::tool_catalog()`.
+[[contributes.mcp_tools]]
+name = "orch.ready"
+description = "List ready bd items in priority order."
+input_schema = { type = "object", properties = {} }
+
+[[contributes.mcp_tools]]
+name = "orch.dispatch"
+description = "Dispatch a ready bd item to a fresh thurbox session. If `bd_id` is omitted, the highest-priority ready item is used. The bd item must have `metadata.repo_path` set (or pass `repo_path_override`)."
+input_schema = { type = "object", properties = { bd_id = { type = "string" }, repo_path_override = { type = "string" }, role_override = { type = "string" } } }
+
+[[contributes.mcp_tools]]
+name = "orch.poll"
+description = "Capture a session's recent output and report whether the worker has emitted the `===RESULT===` sentinel. Returns status one of running|ok|error|malformed."
+input_schema = { type = "object", required = ["session_id"], properties = { session_id = { type = "string" }, lines = { type = "integer", default = 200 } } }
+
+[[contributes.mcp_tools]]
+name = "orch.close"
+description = "Close a bd item and (by default) delete the thurbox session that was working on it."
+input_schema = { type = "object", required = ["bd_id"], properties = { bd_id = { type = "string" }, reason = { type = "string" }, delete_session = { type = "boolean", default = true } } }
+
+[[contributes.mcp_tools]]
+name = "orch.list_active"
+description = "List currently dispatched bd↔session pairs (intersection of `tx.list_sessions` and `orch:session:*` kv mappings)."
+input_schema = { type = "object", properties = {} }
+
 [process]
 exec = "bin/thurbox-plugin-orchestrator"
 capabilities = ["mcp-tools"]

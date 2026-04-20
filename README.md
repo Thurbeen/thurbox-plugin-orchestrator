@@ -12,8 +12,9 @@ that loop needs and stay otherwise out of the way.
 ## Status
 
 Pre-MVP. The plugin daemon, `bd` wrapper, and `thurbox-mcp` client
-compile and are unit tested. End-to-end exercise depends on the
-upstream thurbox plugin process runtime landing — see *Known blockers*.
+compile and are unit tested. Upstream thurbox now spawns
+`mcp-tools`-capability plugins and proxies their tool surface via the
+control socket, so end-to-end exercise is unblocked.
 
 ## Layout
 
@@ -100,14 +101,6 @@ Then in thurbox:
    ```
    Then ask the admin orchestrator session (with the `orchestrate`
    skill loaded) to dispatch the ready item.
-
-## Known blockers
-
-- **Thurbox plugin process runtime is forthcoming.** Plugin discovery
-  + manifests work today, but the host doesn't yet spawn `mcp-tools`
-  plugin processes and proxy their `mcp.list_tools` / `mcp.call`
-  surface. Until that lands, `orch.*` is reachable only by exercising
-  the plugin daemon directly over stdio.
 
 ## Smoke test (no thurbox host needed)
 

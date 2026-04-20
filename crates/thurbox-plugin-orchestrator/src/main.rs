@@ -18,7 +18,7 @@ use orchestrator_core::bd::Bd;
 use orchestrator_core::jsonrpc::{self, Incoming, Notification, Request, Response};
 use orchestrator_core::plugin::{self, HandshakeRequest};
 use orchestrator_core::thurbox::Client;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::env;
 use tokio::io::{stdin, stdout, BufReader, BufWriter};
 use tokio::sync::Mutex;
@@ -75,7 +75,7 @@ async fn handle_request(bd: &Bd, tx: &Client, req: Request) -> Response {
         },
         "mcp.list_tools" => {
             let tools = plugin::tool_catalog();
-            Response::ok(req.id, json!({ "tools": tools }))
+            Response::ok(req.id, serde_json::to_value(&tools).unwrap_or(Value::Null))
         }
         "mcp.call" => {
             let name = req.params.get("name").and_then(Value::as_str);
