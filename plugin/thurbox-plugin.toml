@@ -4,6 +4,16 @@ thurbox_plugin_api = 1
 description = "Beads-driven multi-agent orchestrator. Dispatches one thurbox session per ready bd item."
 author = "Thurbeen"
 
+# Skills auto-registered when the plugin is enabled. install.sh stages
+# `skills/` into the plugin payload alongside this manifest.
+[[contributes.skills]]
+name = "orchestrate"
+path = "skills/orchestrate"
+
+[[contributes.skills]]
+name = "orchestrate-worker"
+path = "skills/orchestrate-worker"
+
 # Static tool declarations let `list_plugin_tools` answer without
 # waking the daemon. Must stay in sync with `plugin::tool_catalog()`.
 [[contributes.mcp_tools]]

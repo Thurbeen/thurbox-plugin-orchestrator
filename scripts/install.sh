@@ -20,6 +20,10 @@ install -m 0644 plugin/thurbox-plugin.toml "$PLUGIN_DST/thurbox-plugin.toml"
 install -m 0644 plugin/README.md           "$PLUGIN_DST/README.md"
 install -m 0755 target/release/thurbox-plugin-orchestrator "$PLUGIN_DST/bin/thurbox-plugin-orchestrator"
 
+echo "==> Syncing contributed skills"
+rm -rf "$PLUGIN_DST/skills"
+cp -r skills "$PLUGIN_DST/skills"
+
 if [[ ! -f "$BD_DB/config.yaml" ]]; then
     echo "==> Initialising bd database in $ADMIN_ROOT"
     rmdir "$BD_DB" 2>/dev/null || true
@@ -34,10 +38,9 @@ cat <<EOF
 
 Next steps:
   1. Restart thurbox so it picks up the plugin (or call register_plugin via MCP).
-  2. Register the orchestrator skills (one-time):
-        thurbox-cli skill register $REPO_ROOT/examples/skills/orchestrate
-        thurbox-cli skill register $REPO_ROOT/examples/skills/orchestrate-worker
-  3. Verify discovery:  thurbox-mcp list_plugins  (no thurbox-cli plugin yet)
-  4. Spawn creator/orchestrator sessions with cwd=$ADMIN_ROOT so 'bd'
+     Skills (orchestrate, orchestrate-worker) are auto-loaded from the
+     plugin manifest — no manual 'skill register' needed.
+  2. Verify discovery:  thurbox-mcp list_plugins  (no thurbox-cli plugin yet)
+  3. Spawn creator/orchestrator sessions with cwd=$ADMIN_ROOT so 'bd'
      auto-discovers .beads/ — or pass '--db $BD_DB' on every bd call.
 EOF

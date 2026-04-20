@@ -24,10 +24,12 @@ crates/
                                      #   bd, jsonrpc, orch, plugin,
                                      #   sentinel, thurbox
   thurbox-plugin-orchestrator/       # plugin daemon binary
-plugin/                              # copied to
+plugin/                              # manifest + plugin README, copied to
                                      # ~/.local/share/thurbox/admin/plugins/orchestrator/
-examples/skills/                     # reference SKILL.md files for the
-                                     # orchestrator and worker sessions
+skills/                              # SKILL.md trees for orchestrate +
+                                     # orchestrate-worker, contributed via
+                                     # `[[contributes.skills]]` and staged
+                                     # alongside the manifest at install time
 scripts/                             # install helper
 ```
 
@@ -104,12 +106,10 @@ cargo build --all
 
 Then in thurbox:
 1. Restart so the plugin is picked up (or `register_plugin` via MCP).
-2. Register the orchestrator skills once:
-   ```bash
-   thurbox-mcp register_skill examples/skills/orchestrate/SKILL.md
-   thurbox-mcp register_skill examples/skills/orchestrate-worker/SKILL.md
-   ```
-3. From an admin session, drain work:
+   The `orchestrate` and `orchestrate-worker` skills are auto-loaded
+   from the manifest's `[[contributes.skills]]` rows — no manual
+   registration step.
+2. From an admin session, drain work:
    ```bash
    bd --db ~/.local/share/thurbox/admin/.beads/ create "echo hello" --label demo
    bd --db ~/.local/share/thurbox/admin/.beads/ update <id> \
