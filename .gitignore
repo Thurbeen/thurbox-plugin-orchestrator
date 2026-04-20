@@ -21,3 +21,6 @@ temp/
 .dolt/
 *.db
 .beads-credential-key
+# Bd export artifact — hook creates this at commit time; ignore both locations
+/issues.jsonl
+.beads/issues.jsonl
