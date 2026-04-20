@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "thurbox_plugin_orchestrator",
+  "project_id": "0a738e67-7cc6-4807-9911-9ad881ca3e5b"
+}
