@@ -10,9 +10,14 @@ items by dispatching each to a fresh thurbox worker session, watching
 for its result sentinel, and closing the bead when the worker reports
 `status: "ok"`.
 
-You drive this entirely through the `orch.*` MCP tools exposed by the
-`thurbox-plugin-orchestrator` plugin. Do **not** call the worker
-sessions directly — the plugin owns session lifecycle.
+The dispatch / poll / close cycle goes through the `orch.*` MCP tools
+exposed by the `thurbox-plugin-orchestrator` plugin — those wrap
+multi-step session+kv operations and are worth the MCP envelope. For
+**everything else, prefer the CLIs** (`bd`, `thurbox-cli`) over MCP to
+keep token usage low.
+
+Do **not** call the worker sessions directly — the plugin owns their
+lifecycle.
 
 ## Loop
 
@@ -59,6 +64,17 @@ the bead or pass `repo_path_override` for a one-off.
 - `orch.ready` returns `[]` and `orch.list_active` returns `[]` — drain
   complete.
 - The user asks you to pause.
+
+## CLI reference (use these instead of MCP wherever possible)
+
+```bash
+bd ready --json                       # same surface as orch.ready, free
+bd show <bd-id> --json
+bd note <bd-id> "<msg>"
+bd kv get orch:bead:<bd-id>           # peek the bd↔session mapping
+thurbox-cli session list
+thurbox-cli session capture <uuid>    # raw inspection without orch.poll
+```
 
 Be terse in chat. Show the poll result tails only on errors or when
 asked.

@@ -39,6 +39,22 @@ scripts/                             # install helper
 | **admin / orchestrator** | Claude with the `orchestrate` skill — drains ready bd items via the `orch.*` MCP tools |
 | **worker (per bead)**  | spawned by the plugin, runs the `orchestrate-worker` skill, emits `===RESULT===\n{json}` |
 
+Bootstrap both admin sessions with `thurbox-cli session create` (or
+`session create` + `session send` together if you want to ship a
+priming prompt). The orchestrator session must run with `cwd` =
+`~/.local/share/thurbox/admin/` so `bd` auto-discovers `.beads/`.
+
+### Token economy
+
+Every call into `thurbox-mcp` costs Claude tokens (tool schemas plus
+JSON-RPC envelopes). Prefer `bd` and `thurbox-cli` directly:
+
+| use case                         | reach for                                       |
+|----------------------------------|-------------------------------------------------|
+| create / update / inspect a bead | `bd …` shell calls                              |
+| spawn or steer admin sessions    | `thurbox-cli session …`                         |
+| dispatch / poll / close a bead   | `orch.*` (one MCP call replaces 4–5 raw ops)   |
+
 ## MCP tools exposed
 
 | tool                  | purpose                                                                 |

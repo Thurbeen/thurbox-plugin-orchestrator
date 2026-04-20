@@ -20,22 +20,24 @@ install -m 0644 plugin/thurbox-plugin.toml "$PLUGIN_DST/thurbox-plugin.toml"
 install -m 0644 plugin/README.md           "$PLUGIN_DST/README.md"
 install -m 0755 target/release/thurbox-plugin-orchestrator "$PLUGIN_DST/bin/thurbox-plugin-orchestrator"
 
-if [[ ! -d "$BD_DB" ]]; then
-    echo "==> Initialising bd database at $BD_DB"
-    mkdir -p "$BD_DB"
-    bd --db "$BD_DB" init >/dev/null 2>&1 || true
+if ! ls "$BD_DB"/*.db >/dev/null 2>&1; then
+    echo "==> Initialising bd database in $ADMIN_ROOT"
+    rmdir "$BD_DB" 2>/dev/null || true
+    (cd "$ADMIN_ROOT" && bd init --non-interactive --role maintainer)
 else
-    echo "==> bd database $BD_DB already exists"
+    echo "==> bd database $BD_DB already initialised"
 fi
 
-cat <<'EOF'
+cat <<EOF
 
 ==> Done.
 
 Next steps:
   1. Restart thurbox so it picks up the plugin (or call register_plugin via MCP).
   2. Register the orchestrator skills (one-time):
-        thurbox-mcp register_skill examples/skills/orchestrate/SKILL.md
-        thurbox-mcp register_skill examples/skills/orchestrate-worker/SKILL.md
-  3. Verify discovery:  thurbox-mcp list_plugins
+        thurbox-cli skill register $REPO_ROOT/examples/skills/orchestrate
+        thurbox-cli skill register $REPO_ROOT/examples/skills/orchestrate-worker
+  3. Verify discovery:  thurbox-mcp list_plugins  (no thurbox-cli plugin yet)
+  4. Spawn creator/orchestrator sessions with cwd=$ADMIN_ROOT so 'bd'
+     auto-discovers .beads/ — or pass '--db $BD_DB' on every bd call.
 EOF
