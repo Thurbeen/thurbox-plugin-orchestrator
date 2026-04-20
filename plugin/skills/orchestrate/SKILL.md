@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Use whenever the user asks for ANY kind of work (writing files, building features, running tasks, refactors, fixes). Do NOT do the work yourself — decompose the request into bd items, dispatch each to a fresh worker thurbox session via `thurbox-cli session create`, poll for results with `thurbox-cli session capture`, close on success. You file and dispatch; workers do the actual writing.
+description: Use whenever the user asks for ANY kind of work (writing files, building features, running tasks, refactors, fixes). Do NOT do the work yourself — decompose the request into bd items, dispatch each to a fresh worker thurbox session via `thurbox-cli session create`, then hand polling off to the `orch-reap` shell reaper (no LLM tokens burned on idle polls). You file and dispatch; workers do the actual writing.
 ---
 
 # orchestrate
@@ -82,41 +82,59 @@ bd kv set orch:bead:<bd-id> <uuid>
 bd kv set orch:session:<uuid> <bd-id>
 ```
 
-### 3. Poll
+If `session create` or `session send` fails for a bead, do NOT write
+the kv mapping — leave the bead in `ready` so the next iteration
+retries. Consistent kv = clean reaper view.
 
-Every 30–60 seconds per dispatched bead:
+### 3. Reap
 
-```bash
-thurbox-cli session capture <uuid> --lines 200
-```
-
-Scan the output for `===RESULT===` followed by a JSON line:
-
-- Not present yet → **running**. Keep waiting.
-- `{"status":"ok"}` → **done**. Go to close.
-- `{"status":"error","reason":"..."}` → **error**. Leave the bead
-  open, append `bd note <bd-id> "<reason>"`, and do NOT delete the
-  session — the user may want to inspect it.
-- `===RESULT===` present but the JSON doesn't parse → **malformed**.
-  Investigate before closing.
-
-### 4. Close
-
-Only on `status:"ok"`:
+Do NOT call `thurbox-cli session capture` yourself. Polling, sentinel
+parsing, bead closing, and session deletion all live in the shell
+reaper — it runs with zero LLM tokens. Invoke:
 
 ```bash
-uuid=$(bd kv get orch:bead:<bd-id>)
-bd close <bd-id> --reason "completed via orchestrator"
-bd kv clear orch:bead:<bd-id>
-bd kv clear orch:session:$uuid
-thurbox-cli session delete $uuid
+"$HOME/.local/share/thurbox/admin/plugins/orchestrator/bin/orch-reap" --json
 ```
 
-### 5. Stop
+(If running from the plugin's source tree, invoke `plugin/bin/orch-reap --json` instead.)
 
-You are done when `bd ready --json` returns `[]` and there are no
-session UUIDs left under `orch:session:*` — or when the user asks you
-to pause.
+The reaper prints one compact JSON line:
+
+```json
+{
+  "ok":        ["admin-42"],
+  "error":     [{"bd":"admin-43","uuid":"...","reason":"...","tail":"..."}],
+  "running":   ["admin-44"],
+  "malformed": [{"bd":"admin-45","uuid":"...","tail":"..."}],
+  "vanished":  [{"bd":"admin-46","uuid":"..."}],
+  "swept_at":  "2026-04-20T12:34:56Z"
+}
+```
+
+Bucket semantics:
+
+- **ok** — bead already closed, both kv keys cleared, session deleted. Nothing for you to do.
+- **error** — worker emitted `status:"error"`. Bead stays open, `bd note` added, session preserved for inspection. Surface the `reason` + `tail` to the user.
+- **running** — still working. If this list is non-empty, sleep and reap again.
+- **malformed** — `===RESULT===` present but JSON unparseable or missing `status`. Bead stays open, session preserved, `bd note` added. Investigate or escalate to the user.
+- **vanished** — `session capture` failed. Judgment call: clear the stale kv mapping and re-dispatch, or flag for the user. The reaper intentionally does NOT auto-clear.
+
+Loop idiom:
+
+```bash
+while :; do
+  summary=$("$HOME/.local/share/thurbox/admin/plugins/orchestrator/bin/orch-reap" --json)
+  running=$(printf '%s' "$summary" | jq '.running | length')
+  if [ "$running" = "0" ]; then break; fi
+  sleep 30
+done
+```
+
+### 4. Stop
+
+You are done when `bd ready --json` returns `[]` and the last reaper
+summary has `running`, `error`, `malformed`, and `vanished` all empty —
+or when the user asks you to pause.
 
 ## Quick reference
 
@@ -126,7 +144,7 @@ bd show <bd-id> --json                     # inspect a bead
 bd note <bd-id> "<msg>"                    # attach context
 bd kv get orch:bead:<bd-id>                # lookup session for bead
 thurbox-cli session list --pretty          # all active sessions
-thurbox-cli session capture <uuid> --lines 200
+"$HOME/.local/share/thurbox/admin/plugins/orchestrator/bin/orch-reap" --json
 ```
 
-Be terse. Show poll output only on errors or when asked.
+Be terse. Surface reaper output only on non-empty error/malformed/vanished buckets or when asked.

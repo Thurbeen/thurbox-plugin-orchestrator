@@ -62,8 +62,44 @@ _Add your build and test commands here_
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+Content-only plugin: two skills + two roles + one shell reaper.
+
+- **orchestrate skill** — LLM decomposes the user's request into bd items,
+  spawns worker thurbox sessions via `thurbox-cli session create`, records
+  `orch:session:<uuid> -> <bd-id>` mappings in `bd kv`, then delegates
+  polling to the reaper.
+- **orchestrate-worker skill** — per-worker contract: do the work in the
+  bead's `metadata.repo_path`, emit a single `===RESULT===` sentinel at
+  the end of the final response.
+- **plugin/bin/orch-reap** — shell script that sweeps every
+  `orch:session:*` kv mapping, captures the session pane, extracts the
+  **last** sentinel, classifies each session (`ok`/`error`/`running`/
+  `malformed`/`vanished`), mutates bd/session state for ok/error, and
+  emits one compact JSON summary line. Runs with zero LLM tokens — the
+  orchestrator session only sees the summary, not raw pane output.
+
+The dispatcher/reaper split exists specifically to keep the orchestrator
+LLM context bounded regardless of worker count or poll cadence.
+Historical `thurbox-cli session capture` polling from the LLM is gone
+from the happy path; use `capture` only when inspecting a failed worker.
+
+## Migration note
+
+In-flight orchestrator sessions started under the pre-reaper skill keep
+the old polling instructions in their own context — let them finish
+naturally, or `thurbox-cli session delete` and restart. Workers and bd
+state (`orch:bead:*` / `orch:session:*`) need no migration; the reaper
+picks up existing mappings on its first sweep.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- The orchestrator role blocks Write/Edit at the tool layer — if you want
+  to create or modify a file as the orchestrator, file a bead and dispatch
+  it to a worker. Never shell-around the restriction with `cat >`, `tee`,
+  `sed -i`, etc.
+- Any bead the orchestrator dispatches MUST have `metadata.repo_path` set
+  to an absolute directory that exists — `mkdir -p` it first if the user
+  only named a parent.
+- Worker sentinels are **last-writer-wins** — the reaper acts on the last
+  `===RESULT===` block in the pane. Workers must emit it exactly once, at
+  the end.

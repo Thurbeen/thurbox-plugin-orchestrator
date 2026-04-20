@@ -1,0 +1,125 @@
+#!/bin/sh
+# orch-reap — sweep worker sessions owned by the orchestrator, parse the
+# ===RESULT=== sentinel, mutate bd/session state, and emit a compact JSON
+# summary. Invoked by the `orchestrate` skill in place of an LLM poll loop.
+#
+# Dependencies: bd, thurbox-cli, jq, awk, date.
+# Exit code: 0 on success, non-zero on internal failure. Work state is
+# conveyed via the JSON buckets (ok / error / running / malformed / vanished),
+# not the exit code.
+
+set -eu
+
+pretty=1
+if [ "${1:-}" = "--json" ]; then
+  pretty=0
+fi
+
+MAX_TAIL_LINES=20
+MAX_TAIL_BYTES=2048
+
+ok_arr='[]'
+error_arr='[]'
+running_arr='[]'
+malformed_arr='[]'
+vanished_arr='[]'
+
+# Read orch:session:<uuid> -> bd-id mappings. Warnings from bd go to stderr
+# and do not contaminate the JSON on stdout.
+mappings=$(bd kv list --json 2>/dev/null \
+  | jq -r 'to_entries[] | select(.key | startswith("orch:session:")) | "\(.key)\t\(.value)"' \
+  || true)
+
+if [ -z "$mappings" ]; then
+  swept_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  result=$(jq -cn --arg swept_at "$swept_at" \
+    '{ok:[], error:[], running:[], malformed:[], vanished:[], swept_at:$swept_at}')
+  if [ "$pretty" = "1" ]; then printf '%s\n' "$result" | jq .; else printf '%s\n' "$result"; fi
+  exit 0
+fi
+
+IFS_BACKUP=$IFS
+IFS=$(printf '\n')
+for line in $mappings; do
+  IFS=$IFS_BACKUP
+  key=$(printf '%s' "$line" | cut -f1)
+  bead=$(printf '%s' "$line" | cut -f2)
+  [ -z "$key" ] && continue
+  uuid="${key#orch:session:}"
+
+  # Capture pane. Nonzero exit or empty output => treat as vanished.
+  if ! out=$(thurbox-cli session capture "$uuid" --lines 200 2>/dev/null); then
+    entry=$(jq -cn --arg bd "$bead" --arg uuid "$uuid" '{bd:$bd, uuid:$uuid}')
+    vanished_arr=$(printf '%s' "$vanished_arr" | jq -c --argjson x "$entry" '. + [$x]')
+    IFS=$(printf '\n')
+    continue
+  fi
+
+  # Find the LAST ===RESULT=== marker and its payload (next non-blank line).
+  payload=$(printf '%s\n' "$out" | awk '
+    /===RESULT===/ { marker = 1; got = 0; buf = ""; next }
+    marker && !got && NF > 0 { buf = $0; got = 1; next }
+    END { if (got) print buf }
+  ')
+
+  if [ -z "$payload" ]; then
+    running_arr=$(printf '%s' "$running_arr" | jq -c --arg bd "$bead" '. + [$bd]')
+    IFS=$(printf '\n')
+    continue
+  fi
+
+  # Parse status; malformed if JSON or status missing.
+  if ! status=$(printf '%s' "$payload" | jq -er '.status' 2>/dev/null); then
+    tail_snippet=$(printf '%s\n' "$out" | tail -n "$MAX_TAIL_LINES" | head -c "$MAX_TAIL_BYTES")
+    bd note "$bead" "orch-reap: malformed sentinel payload" >/dev/null 2>&1 || true
+    entry=$(jq -cn --arg bd "$bead" --arg uuid "$uuid" --arg tail "$tail_snippet" \
+      '{bd:$bd, uuid:$uuid, tail:$tail}')
+    malformed_arr=$(printf '%s' "$malformed_arr" | jq -c --argjson x "$entry" '. + [$x]')
+    IFS=$(printf '\n')
+    continue
+  fi
+
+  case "$status" in
+    ok)
+      bd close "$bead" --reason "completed via orchestrator" >/dev/null 2>&1 || true
+      bd kv clear "orch:bead:$bead" >/dev/null 2>&1 || true
+      bd kv clear "orch:session:$uuid" >/dev/null 2>&1 || true
+      thurbox-cli session delete "$uuid" >/dev/null 2>&1 || true
+      ok_arr=$(printf '%s' "$ok_arr" | jq -c --arg bd "$bead" '. + [$bd]')
+      ;;
+    error)
+      reason=$(printf '%s' "$payload" | jq -r '.reason // .notes // ""' 2>/dev/null || printf '')
+      tail_snippet=$(printf '%s\n' "$out" | tail -n "$MAX_TAIL_LINES" | head -c "$MAX_TAIL_BYTES")
+      note_msg="orch-reap: worker errored: $(printf '%s' "$reason" | head -c 500)"
+      bd note "$bead" "$note_msg" >/dev/null 2>&1 || true
+      entry=$(jq -cn --arg bd "$bead" --arg uuid "$uuid" --arg reason "$reason" --arg tail "$tail_snippet" \
+        '{bd:$bd, uuid:$uuid, reason:$reason, tail:$tail}')
+      error_arr=$(printf '%s' "$error_arr" | jq -c --argjson x "$entry" '. + [$x]')
+      ;;
+    *)
+      tail_snippet=$(printf '%s\n' "$out" | tail -n "$MAX_TAIL_LINES" | head -c "$MAX_TAIL_BYTES")
+      bd note "$bead" "orch-reap: unknown sentinel status '$status'" >/dev/null 2>&1 || true
+      entry=$(jq -cn --arg bd "$bead" --arg uuid "$uuid" --arg tail "$tail_snippet" \
+        '{bd:$bd, uuid:$uuid, tail:$tail}')
+      malformed_arr=$(printf '%s' "$malformed_arr" | jq -c --argjson x "$entry" '. + [$x]')
+      ;;
+  esac
+  IFS=$(printf '\n')
+done
+IFS=$IFS_BACKUP
+
+swept_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+result=$(jq -cn \
+  --argjson ok "$ok_arr" \
+  --argjson error "$error_arr" \
+  --argjson running "$running_arr" \
+  --argjson malformed "$malformed_arr" \
+  --argjson vanished "$vanished_arr" \
+  --arg swept_at "$swept_at" \
+  '{ok:$ok, error:$error, running:$running, malformed:$malformed, vanished:$vanished, swept_at:$swept_at}')
+
+if [ "$pretty" = "1" ]; then
+  printf '%s\n' "$result" | jq .
+else
+  printf '%s\n' "$result"
+fi
