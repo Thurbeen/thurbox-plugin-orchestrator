@@ -3,21 +3,18 @@
 Beads-driven multi-agent orchestrator. Dispatches one thurbox session
 per ready `bd` item.
 
-This directory is the installable plugin payload. It is copied to
-`~/.local/share/thurbox/admin/plugins/orchestrator/` by the repo's
-`scripts/install.sh`. The `bin/` subdir is populated at install time
-with one binary built from the parent repo:
+Content-only plugin: ships two skills and two roles, no compiled
+binaries. The orchestrator workflow runs entirely through `bd` and
+`thurbox-cli` shell calls.
 
-- `thurbox-plugin-orchestrator` — the plugin daemon (`exec` in this
-  manifest). Capabilities: `mcp-tools`. Exposes `orch.ready`,
-  `orch.dispatch`, `orch.poll`, `orch.close`, `orch.list_active`.
+## Contents
 
-Configuration env vars (read by the daemon at startup):
+- `skills/orchestrate/` — orchestrator session loop
+- `skills/orchestrate-worker/` — per-bead worker contract
+- `roles/orchestrator.toml` — disables Write/Edit, pre-approves
+  `Bash(bd:*)` / `Bash(thurbox-cli:*)` / `Bash(mkdir:*)`
+- `roles/worker.toml` — permissive (`dontAsk`) for per-bead jobs
 
-| env var                | default                                    |
-|------------------------|--------------------------------------------|
-| `THURBOX_ORCH_BD_DB`   | `~/.local/share/thurbox/admin/.beads/`     |
-| `THURBOX_ORCH_MCP_BIN` | `thurbox-mcp` (resolved via `$PATH`)       |
-
-See the repo's top-level [README](../README.md) for full context and
-two-session usage flow.
+See the source repository
+[README](https://github.com/Thurbeen/thurbox-plugin-orchestrator)
+for the full two-session usage flow.

@@ -18,21 +18,18 @@ dependencies beyond `bd` and `thurbox-cli` being on `$PATH`.
 ## Layout
 
 ```text
-plugin/                              # manifest + plugin README, copied to
-                                     # ~/.local/share/thurbox/admin/plugins/orchestrator/
-skills/                              # SKILL.md trees for orchestrate +
-                                     # orchestrate-worker, contributed via
-                                     # `[[contributes.skills]]` and staged
-                                     # alongside the manifest at install time
-roles/                               # `orchestrator` role TOML —
-                                     # disables Write/Edit and pre-approves
-                                     # Bash(bd:*) / Bash(thurbox-cli:*)
-scripts/                             # install helper
-
-crates/                              # legacy Rust daemon + core library from
-                                     # the MCP-capable iteration. Unused by
-                                     # the current content-only plugin; kept
-                                     # until the design stabilises.
+plugin/                              # installable payload — copied verbatim by
+                                     # thurbox into ~/.local/share/thurbox/admin/
+                                     # plugins/orchestrator/
+├── thurbox-plugin.toml              # manifest (name, version, contributes.*)
+├── README.md                        # ships with the installed plugin
+├── skills/                          # contributed via [[contributes.skills]]
+│   ├── orchestrate/SKILL.md
+│   └── orchestrate-worker/SKILL.md
+└── roles/                           # contributed via [[contributes.roles]]
+    ├── orchestrator.toml            # disables Write/Edit; pre-approves
+    │                                # Bash(bd:*) / Bash(thurbox-cli:*)
+    └── worker.toml                  # permissive (dontAsk) for per-bead jobs
 ```
 
 ## Two-session model
@@ -91,25 +88,30 @@ Set on the bd item with `bd update <id> --set-metadata key=val`.
 
 ## Install
 
-```bash
-./scripts/install.sh
+From inside thurbox (TUI):
+
+1. `Ctrl+E` → tab to **Plugins** → press `i`.
+2. Paste `https://github.com/Thurbeen/thurbox-plugin-orchestrator`.
+3. `Enter`.
+
+Or via the `thurbox-mcp` server's `install_plugin` tool:
+
+```text
+install_plugin source="https://github.com/Thurbeen/thurbox-plugin-orchestrator"
 ```
 
-Stages the manifest + skills + role into
-`~/.local/share/thurbox/admin/plugins/orchestrator/`. Set
-`THURBOX_ADMIN_ROOT` to target a different admin workspace (e.g.
-`~/.local/share/thurbox-dev/admin` for dev builds).
+Either route copies the `plugin/` directory into
+`~/.local/share/thurbox/admin/plugins/orchestrator/`. The skills and
+roles are auto-loaded from the manifest's `[[contributes.*]]` rows on
+the next thurbox tick — no restart required.
 
-Then in thurbox:
-1. Restart so the plugin is picked up (or `register_plugin` via MCP).
-   The skills and role are auto-loaded from the manifest's
-   `[[contributes.*]]` rows.
-2. Create a bd item and ask the orchestrator to dispatch:
-   ```bash
-   bd --db ~/.local/share/thurbox/admin/.beads/ create "echo hello" --label demo
-   bd --db ~/.local/share/thurbox/admin/.beads/ update <id> \
-      --set-metadata repo_path=$HOME/scratch/hello
-   ```
+Then create a bd item and ask the orchestrator to dispatch:
+
+```bash
+bd --db ~/.local/share/thurbox/admin/.beads/ create "echo hello" --label demo
+bd --db ~/.local/share/thurbox/admin/.beads/ update <id> \
+   --set-metadata repo_path=$HOME/scratch/hello
+```
 
 ## License
 

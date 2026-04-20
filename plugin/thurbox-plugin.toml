@@ -4,8 +4,8 @@ thurbox_plugin_api = 1
 description = "Beads-driven multi-agent orchestrator. Ships a role + two skills; workflow uses bd and thurbox-cli directly, no plugin daemon."
 author = "Thurbeen"
 
-# Skills auto-registered when the plugin is enabled. install.sh stages
-# `skills/` into the plugin payload alongside this manifest.
+# Skills auto-registered when the plugin is enabled. Paths are resolved
+# relative to this manifest's directory.
 [[contributes.skills]]
 name = "orchestrate"
 path = "skills/orchestrate"
