@@ -20,7 +20,7 @@ install -m 0644 plugin/thurbox-plugin.toml "$PLUGIN_DST/thurbox-plugin.toml"
 install -m 0644 plugin/README.md           "$PLUGIN_DST/README.md"
 install -m 0755 target/release/thurbox-plugin-orchestrator "$PLUGIN_DST/bin/thurbox-plugin-orchestrator"
 
-if ! ls "$BD_DB"/*.db >/dev/null 2>&1; then
+if [[ ! -f "$BD_DB/config.yaml" ]]; then
     echo "==> Initialising bd database in $ADMIN_ROOT"
     rmdir "$BD_DB" 2>/dev/null || true
     (cd "$ADMIN_ROOT" && bd init --non-interactive --role maintainer)
