@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build and install thurbox-plugin-orchestrator into the thurbox admin workspace.
-# Idempotent: re-running upgrades the binary and re-syncs the manifest.
+# Install thurbox-plugin-orchestrator into the thurbox admin workspace.
+# Pure content-bundle plugin (skills + role, no binary). Idempotent.
 
 set -euo pipefail
 
@@ -11,14 +11,10 @@ BD_DB="$ADMIN_ROOT/.beads"
 
 cd "$REPO_ROOT"
 
-echo "==> Building binary (release)"
-cargo build --release -p thurbox-plugin-orchestrator
-
 echo "==> Staging plugin payload at $PLUGIN_DST"
-mkdir -p "$PLUGIN_DST/bin"
+mkdir -p "$PLUGIN_DST"
 install -m 0644 plugin/thurbox-plugin.toml "$PLUGIN_DST/thurbox-plugin.toml"
 install -m 0644 plugin/README.md           "$PLUGIN_DST/README.md"
-install -m 0755 target/release/thurbox-plugin-orchestrator "$PLUGIN_DST/bin/thurbox-plugin-orchestrator"
 
 echo "==> Syncing contributed skills"
 rm -rf "$PLUGIN_DST/skills"
@@ -27,6 +23,9 @@ cp -r skills "$PLUGIN_DST/skills"
 echo "==> Syncing contributed roles"
 rm -rf "$PLUGIN_DST/roles"
 cp -r roles "$PLUGIN_DST/roles"
+
+# Drop any leftover binary from the previous MCP-capable iteration.
+rm -rf "$PLUGIN_DST/bin"
 
 if [[ ! -f "$BD_DB/config.yaml" ]]; then
     echo "==> Initialising bd database in $ADMIN_ROOT"
@@ -42,9 +41,8 @@ cat <<EOF
 
 Next steps:
   1. Restart thurbox so it picks up the plugin (or call register_plugin via MCP).
-     Skills (orchestrate, orchestrate-worker) are auto-loaded from the
-     plugin manifest — no manual 'skill register' needed.
-  2. Verify discovery:  thurbox-mcp list_plugins  (no thurbox-cli plugin yet)
-  3. Spawn creator/orchestrator sessions with cwd=$ADMIN_ROOT so 'bd'
-     auto-discovers .beads/ — or pass '--db $BD_DB' on every bd call.
+     Skills (orchestrate, orchestrate-worker) and the orchestrator role are
+     auto-loaded from the plugin manifest — no separate registration step.
+  2. Spawn the orchestrator session with cwd=$ADMIN_ROOT (so 'bd' auto-discovers
+     .beads/) and --role orchestrator --skill orchestrate.
 EOF

@@ -5,25 +5,19 @@ beads-backed multi-agent orchestrator. One ready
 [`bd`](https://github.com/gastownhall/beads) item → one fresh thurbox
 session → one worker that emits a result sentinel.
 
-The orchestrator itself is a Claude session (not a daemon) using these
-MCP tools in a loop. The plugin's job is to expose the small surface
-that loop needs and stay otherwise out of the way.
+The orchestrator itself is a Claude session (not a daemon) running the
+`orchestrate` skill. All work happens through plain shell calls —
+`bd` for state, `thurbox-cli` for session lifecycle. No MCP tools and
+no plugin daemon binary.
 
 ## Status
 
-Pre-MVP. The plugin daemon, `bd` wrapper, and `thurbox-mcp` client
-compile and are unit tested. Upstream thurbox now spawns
-`mcp-tools`-capability plugins and proxies their tool surface via the
-control socket, so end-to-end exercise is unblocked.
+Content-only plugin. Ships two skills and a role; zero runtime
+dependencies beyond `bd` and `thurbox-cli` being on `$PATH`.
 
 ## Layout
 
 ```text
-crates/
-  orchestrator-core/                 # shared library:
-                                     #   bd, jsonrpc, orch, plugin,
-                                     #   sentinel, thurbox
-  thurbox-plugin-orchestrator/       # plugin daemon binary
 plugin/                              # manifest + plugin README, copied to
                                      # ~/.local/share/thurbox/admin/plugins/orchestrator/
 skills/                              # SKILL.md trees for orchestrate +
@@ -31,9 +25,14 @@ skills/                              # SKILL.md trees for orchestrate +
                                      # `[[contributes.skills]]` and staged
                                      # alongside the manifest at install time
 roles/                               # `orchestrator` role TOML —
-                                     # disables Write/Edit and ships the
-                                     # orchestrator system prompt
+                                     # disables Write/Edit and pre-approves
+                                     # Bash(bd:*) / Bash(thurbox-cli:*)
 scripts/                             # install helper
+
+crates/                              # legacy Rust daemon + core library from
+                                     # the MCP-capable iteration. Unused by
+                                     # the current content-only plugin; kept
+                                     # until the design stabilises.
 ```
 
 ## Two-session model
@@ -41,15 +40,10 @@ scripts/                             # install helper
 | session                | role                                                                |
 |------------------------|---------------------------------------------------------------------|
 | **admin / creator**    | human + Claude, uses raw `bd create` / `bd update` to file work     |
-| **admin / orchestrator** | Claude with the `orchestrate` skill — drains ready bd items via the `orch.*` MCP tools |
-| **worker (per bead)**  | spawned by the plugin, runs the `orchestrate-worker` skill, emits `===RESULT===\n{json}` |
+| **admin / orchestrator** | Claude with the `orchestrate` skill + `orchestrator` role — drains ready bd items using `bd` + `thurbox-cli` |
+| **worker (per bead)**  | spawned by the orchestrator, runs the `orchestrate-worker` skill, emits `===RESULT===\n{json}` |
 
-Bootstrap both admin sessions with `thurbox-cli session create` (or
-`session create` + `session send` together if you want to ship a
-priming prompt). The orchestrator session must run with `cwd` =
-`~/.local/share/thurbox/admin/` so `bd` auto-discovers `.beads/`, and
-**must be spawned with `--role orchestrator`** so `Write`/`Edit` are
-disabled and the orchestrator system prompt is loaded:
+Spawn the orchestrator session so `bd` can auto-discover `.beads/`:
 
 ```bash
 thurbox-cli session create \
@@ -59,29 +53,30 @@ thurbox-cli session create \
   --skill orchestrate
 ```
 
-### Token economy
+The `orchestrator` role disables `Write`/`Edit`/`MultiEdit`/`NotebookEdit`
+at the tool layer and pre-approves `Bash(bd:*)`, `Bash(thurbox-cli:*)`,
+and `Bash(mkdir:*)` so the orchestrator can drive the workflow without
+constant prompts.
 
-Every call into `thurbox-mcp` costs Claude tokens (tool schemas plus
-JSON-RPC envelopes). Prefer `bd` and `thurbox-cli` directly:
+## The workflow
 
-| use case                         | reach for                                       |
-|----------------------------------|-------------------------------------------------|
-| create / update / inspect a bead | `bd …` shell calls                              |
-| spawn or steer admin sessions    | `thurbox-cli session …`                         |
-| dispatch / poll / close a bead   | `orch.*` (one MCP call replaces 4–5 raw ops)   |
+The `orchestrate` skill tells the orchestrator to:
 
-## MCP tools exposed
-
-| tool                  | purpose                                                                 |
-|-----------------------|-------------------------------------------------------------------------|
-| `orch.ready`          | List ready bd items in priority order.                                  |
-| `orch.dispatch`       | Spawn a thurbox session for one ready item, send the worker prompt.    |
-| `orch.poll`           | Capture session output and report `running`/`ok`/`error`/`malformed`.  |
-| `orch.close`          | Close the bead and (default) delete the session.                        |
-| `orch.list_active`    | Inspect currently dispatched bd↔session pairs.                          |
+1. **Decompose** the user's request into independent `bd` items.
+   `bd create`, then `bd update <id> --set-metadata repo_path=<path>`.
+2. **Dispatch** each bead: `thurbox-cli session create` (with
+   `--role worker --skill orchestrate-worker`), grab the UUID,
+   `thurbox-cli session send <uuid> "<prompt>"`, record
+   `bd kv set orch:bead:<id> <uuid>` and the reverse mapping.
+3. **Poll** each session every 30–60 s:
+   `thurbox-cli session capture <uuid> --lines 200`. Look for
+   `===RESULT===` + a `{"status":...}` line.
+4. **Close** on `status:"ok"`: `bd close <id>`, `bd kv clear` both
+   keys, `thurbox-cli session delete <uuid>`. On `status:"error"`,
+   leave the bead open and append a `bd note`.
 
 State lives in `bd kv`:
-- `orch:bead:<bd-id>` → thurbox session id
+- `orch:bead:<bd-id>` → thurbox session uuid
 - `orch:session:<uuid>` → bd id
 
 ## Per-bead config
@@ -91,25 +86,8 @@ Set on the bd item with `bd update <id> --set-metadata key=val`.
 | key         | required | meaning                                                          |
 |-------------|----------|------------------------------------------------------------------|
 | `repo_path` | yes      | working directory the worker session is spawned in               |
-| `role`      | no       | passed through to `create_session` (project role)                |
-| `skills`    | no       | comma-separated skill names attached to the worker session       |
-
-## Configuration
-
-| env var                  | default                                              |
-|--------------------------|------------------------------------------------------|
-| `THURBOX_ORCH_BD_DB`     | `~/.local/share/thurbox/admin/.beads/`               |
-| `THURBOX_ORCH_MCP_BIN`   | `thurbox-mcp` (resolved via `$PATH`)                 |
-| `THURBOX_ADMIN_ROOT`     | `~/.local/share/thurbox/admin` (used by `install.sh`) |
-
-## Development
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all
-cargo build --all
-```
+| `role`      | no       | role name to pass to `thurbox-cli session create --role ...`     |
+| `skills`    | no       | comma-separated skill names for the worker session               |
 
 ## Install
 
@@ -117,33 +95,21 @@ cargo build --all
 ./scripts/install.sh
 ```
 
+Stages the manifest + skills + role into
+`~/.local/share/thurbox/admin/plugins/orchestrator/`. Set
+`THURBOX_ADMIN_ROOT` to target a different admin workspace (e.g.
+`~/.local/share/thurbox-dev/admin` for dev builds).
+
 Then in thurbox:
 1. Restart so the plugin is picked up (or `register_plugin` via MCP).
-   The `orchestrate` and `orchestrate-worker` skills are auto-loaded
-   from the manifest's `[[contributes.skills]]` rows — no manual
-   registration step.
-2. From an admin session, drain work:
+   The skills and role are auto-loaded from the manifest's
+   `[[contributes.*]]` rows.
+2. Create a bd item and ask the orchestrator to dispatch:
    ```bash
    bd --db ~/.local/share/thurbox/admin/.beads/ create "echo hello" --label demo
    bd --db ~/.local/share/thurbox/admin/.beads/ update <id> \
       --set-metadata repo_path=$HOME/scratch/hello
    ```
-   Then ask the admin orchestrator session (with the `orchestrate`
-   skill loaded) to dispatch the ready item.
-
-## Smoke test (no thurbox host needed)
-
-```bash
-printf '%s\n%s\n%s\n' \
-  '{"id":1,"op":"handshake","params":{"api_version":1,"plugin_name":"orchestrator","effective_configuration":{}}}' \
-  '{"id":2,"op":"mcp.list_tools","params":{}}' \
-  '{"id":3,"op":"stop","params":{}}' \
-  | THURBOX_ORCH_MCP_BIN=$(which thurbox-mcp) \
-    ~/.local/share/thurbox/admin/plugins/orchestrator/bin/thurbox-plugin-orchestrator
-```
-
-Three `{"id":…,"ok":true,…}` lines back; the second lists all five
-`orch.*` tools.
 
 ## License
 
