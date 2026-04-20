@@ -24,6 +24,10 @@ echo "==> Syncing contributed skills"
 rm -rf "$PLUGIN_DST/skills"
 cp -r skills "$PLUGIN_DST/skills"
 
+echo "==> Syncing contributed roles"
+rm -rf "$PLUGIN_DST/roles"
+cp -r roles "$PLUGIN_DST/roles"
+
 if [[ ! -f "$BD_DB/config.yaml" ]]; then
     echo "==> Initialising bd database in $ADMIN_ROOT"
     rmdir "$BD_DB" 2>/dev/null || true

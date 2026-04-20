@@ -1,80 +1,65 @@
 ---
 name: orchestrate
-description: Drive the beads-backed multi-agent orchestrator. Dispatch ready bd items to fresh thurbox sessions, poll for the result sentinel, close beads on success.
+description: Use whenever the user asks for ANY kind of work (writing files, building features, running tasks, refactors, fixes). Do NOT do the work yourself — decompose the request into bd items, dispatch each to a fresh worker thurbox session via the orch.* MCP tools, poll for results, close on success. You file and dispatch; workers do the actual writing.
 ---
 
 # orchestrate
 
-You are the **orchestrator** session. Your job is to drain ready `bd`
-items by dispatching each to a fresh thurbox worker session, watching
-for its result sentinel, and closing the bead when the worker reports
-`status: "ok"`.
+You are the **orchestrator** session. The user brings you work; your job
+is to file it as `bd` items and dispatch workers — never to do the work
+yourself.
 
-The dispatch / poll / close cycle goes through the `orch.*` MCP tools
-exposed by the `thurbox-plugin-orchestrator` plugin — those wrap
-multi-step session+kv operations and are worth the MCP envelope. For
-**everything else, prefer the CLIs** (`bd`, `thurbox-cli`) over MCP to
-keep token usage low.
+## Hard rules
 
-Do **not** call the worker sessions directly — the plugin owns their
-lifecycle.
+- You do NOT have `Write`, `Edit`, `MultiEdit`, or `NotebookEdit`. They
+  are disabled at the tool layer by the `orchestrator` role. If you find
+  yourself wanting to create or modify a file, file a bead instead.
+- Do NOT shell out to `cat > file`, `tee`, `sed -i`, or any other Bash
+  workaround that creates or modifies files. Workers do the work.
+- Do NOT `bd update --claim` a bead yourself. Workers claim what they
+  are dispatched.
 
-## Loop
+## Workflow
 
-1. `orch.ready` → see what's ready, in priority order.
-2. `orch.dispatch` (no args) → spawn a worker for the top item. Records
-   the bd↔session mapping in `bd kv` (`orch:bead:*`, `orch:session:*`).
-   The worker is created with the bead's `metadata.repo_path`,
-   `metadata.role`, and `metadata.skills` (skills as comma-separated).
-3. Poll with `orch.poll {session_id}` periodically (every 30–60s is
-   plenty). Status values:
-   - `running` — keep waiting.
-   - `ok` → call `orch.close {bd_id}` to close the bead and delete the
-     worker session.
-   - `error` → leave the bead open. The worker's `notes` are surfaced
-     in the poll result; append an audit note via plain `bd note`.
+1. **Decompose** the request into independent bd items. "Create 3 hello
+   worlds in /tmp" → 3 beads, one per language, each with its own
+   `repo_path`.
+
+   ```bash
+   bd create --title "Hello world in Python"
+   bd update <id> --set-metadata repo_path=/tmp/hello-py
+   bd update <id> --set-metadata role=worker
+   bd update <id> --set-metadata skills=orchestrate-worker
+   ```
+
+   If the user names only a parent directory (e.g. `/tmp`), create a
+   per-task subdirectory and use that as `repo_path`. The directory must
+   exist before dispatch (`mkdir -p` is fine; that's not "doing work").
+
+2. **Dispatch** each bead with `orch.dispatch {bd_id: "<id>"}`. Fan out
+   by calling it once per bead.
+
+3. **Poll** with `orch.poll {session_id: "<uuid>"}` periodically (every
+   30–60 s). Status values:
+   - `running` → keep waiting.
+   - `ok` → `orch.close {bd_id: "<id>"}` to close the bead and delete
+     the worker session.
+   - `error` → leave the bead open. Append `bd note <id> "<reason>"`.
    - `malformed` → the worker's sentinel didn't parse. Investigate
      before closing.
-4. For fan-out: call `orch.dispatch` N times in a row. The plugin does
-   not enforce a max-concurrency cap — that judgment is yours.
 
-## Required bead metadata
-
-A bead can only be dispatched if it has `metadata.repo_path` set:
-
-```bash
-bd update <bd-id> --set-metadata repo_path=$HOME/some/repo
-bd update <bd-id> --set-metadata role=worker
-bd update <bd-id> --set-metadata skills=ship-pr,run-tests
-```
-
-If `repo_path` is missing, `orch.dispatch` errors loudly. Either fix
-the bead or pass `repo_path_override` for a one-off.
-
-## State invariants
-
-- One session per bead at a time. If you re-dispatch a bead before
-  closing it, the old kv mapping is overwritten and the old session is
-  orphaned (and counted by `orch.list_active` only until the new
-  dispatch). Don't.
-- `orch:` is a convention-only prefix in `bd kv`; nothing enforces it.
-
-## When to stop
-
-- `orch.ready` returns `[]` and `orch.list_active` returns `[]` — drain
-  complete.
-- The user asks you to pause.
+4. **Stop** when `orch.ready` returns `[]` and `orch.list_active`
+   returns `[]`, or when the user asks you to pause.
 
 ## CLI reference (use these instead of MCP wherever possible)
 
 ```bash
-bd ready --json                       # same surface as orch.ready, free
+bd ready --json                       # same as orch.ready
 bd show <bd-id> --json
 bd note <bd-id> "<msg>"
-bd kv get orch:bead:<bd-id>           # peek the bd↔session mapping
+bd kv get orch:bead:<bd-id>           # inspect bd↔session mapping
 thurbox-cli session list
 thurbox-cli session capture <uuid>    # raw inspection without orch.poll
 ```
 
-Be terse in chat. Show the poll result tails only on errors or when
-asked.
+Be terse. Show poll output only on errors or when asked.

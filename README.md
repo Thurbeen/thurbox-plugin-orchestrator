@@ -30,6 +30,9 @@ skills/                              # SKILL.md trees for orchestrate +
                                      # orchestrate-worker, contributed via
                                      # `[[contributes.skills]]` and staged
                                      # alongside the manifest at install time
+roles/                               # `orchestrator` role TOML —
+                                     # disables Write/Edit and ships the
+                                     # orchestrator system prompt
 scripts/                             # install helper
 ```
 
@@ -44,7 +47,17 @@ scripts/                             # install helper
 Bootstrap both admin sessions with `thurbox-cli session create` (or
 `session create` + `session send` together if you want to ship a
 priming prompt). The orchestrator session must run with `cwd` =
-`~/.local/share/thurbox/admin/` so `bd` auto-discovers `.beads/`.
+`~/.local/share/thurbox/admin/` so `bd` auto-discovers `.beads/`, and
+**must be spawned with `--role orchestrator`** so `Write`/`Edit` are
+disabled and the orchestrator system prompt is loaded:
+
+```bash
+thurbox-cli session create \
+  --name orchestrator \
+  --repo-path ~/.local/share/thurbox/admin \
+  --role orchestrator \
+  --skill orchestrate
+```
 
 ### Token economy
 

@@ -14,6 +14,13 @@ path = "skills/orchestrate"
 name = "orchestrate-worker"
 path = "skills/orchestrate-worker"
 
+# Role enforces the orchestrator contract at the tool layer (Write/Edit
+# disabled) and ships the system prompt. Spawn the orchestrator session
+# with `thurbox-cli session create --role orchestrator …` to opt in.
+[[contributes.roles]]
+name = "orchestrator"
+path = "roles/orchestrator.toml"
+
 # Static tool declarations let `list_plugin_tools` answer without
 # waking the daemon. Must stay in sync with `plugin::tool_catalog()`.
 [[contributes.mcp_tools]]
