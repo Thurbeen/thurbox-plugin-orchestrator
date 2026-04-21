@@ -9,8 +9,9 @@ Steady-state loop (never exit until the user pauses you or both `bd ready --json
 
 1. **Dispatch.** Read `bd ready --json`. For each ready bead up to ORCH_MAX_WORKERS (default 3 concurrent):
    - `bd show <id> --json` to read metadata.
-   - If `base_repo` is set (real code work): `thurbox-cli --pretty session create --name "<bead title>" --repo-path "<base_repo>" --worktree-branch "<branch|bd/<id>>" --base-branch "<base_branch|main>" --role worker --skill orchestrate-worker`.
-   - Else (scratch work with `repo_path` set): `mkdir -p "<repo_path>"` then `thurbox-cli --pretty session create --name "<title>" --repo-path "<repo_path>" --role worker --skill orchestrate-worker`.
+   - If `base_repo` is set (real code work): `thurbox-cli --pretty session create --name "<bead title>" --repo-path "<base_repo>" --worktree-branch "<branch|bd/<id>>" --base-branch "<base_branch|main>" --role worker --skill orchestrate-worker --skill publish`.
+   - Else (scratch work with `repo_path` set): `mkdir -p "<repo_path>"` then `thurbox-cli --pretty session create --name "<title>" --repo-path "<repo_path>" --role worker --skill orchestrate-worker --skill publish`.
+   - The `publish` skill is attached by default so the worker can ship a PR without a follow-up dispatch (`--skill` is repeatable).
    - Capture the UUID from the JSON output.
    - `thurbox-cli session send <uuid> "export BEADS_DB=~/.local/share/thurbox/admin/.beads; work on bd item <id>. Title: <title>. Description: <description>. Transition state with bd set-state, file child beads if the scope is too big, emit ===RESULT=== when done."`
    - `bd kv set orch:bead:<id> <uuid>` and `bd kv set orch:session:<uuid> <id>`.

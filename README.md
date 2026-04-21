@@ -60,14 +60,16 @@ and Sonnet decompose subagents).
 The `orchestrate` skill runs a continuous, reactive loop:
 
 1. **Dispatch** from `bd ready` up to `ORCH_MAX_WORKERS` concurrent
-   workers. Each worker spawns on a fresh **git worktree**:
+   workers. Each worker spawns on a fresh **git worktree** with the
+   `publish` skill pre-attached so it can ship a PR without a follow-up
+   dispatch (`--skill` is repeatable):
    ```bash
    thurbox-cli session create \
      --name "<bead title>" \
      --repo-path <base_repo> \
      --worktree-branch <branch|bd/<id>> \
      --base-branch <base_branch|main> \
-     --role worker --skill orchestrate-worker
+     --role worker --skill orchestrate-worker --skill publish
    ```
    Scratch beads (no `base_repo`) fall back to plain `--repo-path`.
    The orchestrator sends `export BEADS_DB=...; work on bd item <id>...`

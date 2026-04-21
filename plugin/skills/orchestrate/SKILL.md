@@ -54,7 +54,8 @@ thurbox-cli --pretty session create \
   --worktree-branch "<branch-or-bd/<bd-id>>" \
   --base-branch "<base_branch-or-main>" \
   --role worker \
-  --skill orchestrate-worker
+  --skill orchestrate-worker \
+  --skill publish
 
 # Scratch work (no base_repo):
 mkdir -p "<repo_path>"
@@ -62,8 +63,12 @@ thurbox-cli --pretty session create \
   --name "<bead title>" \
   --repo-path "<repo_path>" \
   --role worker \
-  --skill orchestrate-worker
+  --skill orchestrate-worker \
+  --skill publish
 ```
+
+`--skill` is repeatable; `publish` is attached by default so the
+worker can ship a PR without needing a follow-up dispatch.
 
 Session names: use the bead's title verbatim. If two titles collide, append ` (<bd-id>)`.
 
