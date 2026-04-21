@@ -59,8 +59,9 @@ and Sonnet decompose subagents).
 
 The `orchestrate` skill runs a continuous, reactive loop:
 
-1. **Dispatch** from `bd ready` up to `ORCH_MAX_WORKERS` concurrent
-   workers. Each worker spawns on a fresh **git worktree**:
+1. **Dispatch** every ready bead from `bd ready` — there is no
+   concurrency cap; all ready beads go out as soon as they surface.
+   Each worker spawns on a fresh **git worktree**:
    ```bash
    thurbox-cli session create \
      --name "<bead title>" \
