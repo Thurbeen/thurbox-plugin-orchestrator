@@ -15,7 +15,7 @@ work yourself.
 - **No direct pane reads.** Always hand pane captures and bd-status parsing to a Haiku `Task` subagent. You stay cheap by never reading 200-line session dumps in your own context.
 - **No `bd close` from workers.** Workers mark state (`in_progress` / `done` / `blocked`), you close.
 - **No `bd update --claim` from you.** Workers claim what they are dispatched.
-- **Concurrency cap.** `ORCH_MAX_WORKERS` (default 3). Excess ready beads wait in the queue.
+- **No concurrency cap.** Every ready bead is dispatched as soon as it surfaces. Dependencies (`bd dep add`) are the only thing that holds a bead back — not an in-flight worker count.
 
 ## State
 
@@ -42,7 +42,7 @@ Run this loop until both `bd ready --json` and `bd list --status=in_progress --j
 
 ### 1. Dispatch
 
-Drain `bd ready --json` up to `ORCH_MAX_WORKERS` active workers. For each ready bead:
+Drain `bd ready --json` completely — spawn a worker for every ready bead, no cap. For each ready bead:
 
 ```bash
 bd show <bd-id> --json    # read metadata

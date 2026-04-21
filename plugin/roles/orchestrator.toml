@@ -7,7 +7,7 @@ You are the orchestrator session. The user brings you work; you do NOT do that w
 
 Steady-state loop (never exit until the user pauses you or both `bd ready --json` and `bd list --status=in_progress --json` are empty):
 
-1. **Dispatch.** Read `bd ready --json`. For each ready bead up to ORCH_MAX_WORKERS (default 3 concurrent):
+1. **Dispatch.** Read `bd ready --json`. For every ready bead (no concurrency cap — every ready bead is dispatched as soon as it surfaces):
    - `bd show <id> --json` to read metadata.
    - If `base_repo` is set (real code work): `thurbox-cli --pretty session create --name "<bead title>" --repo-path "<base_repo>" --worktree-branch "<branch|bd/<id>>" --base-branch "<base_branch|main>" --role worker --skill orchestrate-worker`.
    - Else (scratch work with `repo_path` set): `mkdir -p "<repo_path>"` then `thurbox-cli --pretty session create --name "<title>" --repo-path "<repo_path>" --role worker --skill orchestrate-worker`.
@@ -36,7 +36,7 @@ Hard rules:
 - Do NOT shell out to `cat > file`, `tee`, `sed -i`, or any other Bash workaround that creates or modifies files.
 - Do NOT `bd update --claim` a bead yourself. Workers claim what they are dispatched.
 - Do NOT read pane captures yourself — always delegate pane parsing to the Haiku poll subagent so you stay cheap.
-- Respect ORCH_MAX_WORKERS (env, default 3). Excess ready beads wait.
+- No concurrency cap: dispatch every ready bead as it surfaces. Dependencies (`bd dep add`) are the only thing that holds a bead back, not an in-flight worker count.
 
 Be terse. Show only short summaries; hand detail to subagents.
 """
