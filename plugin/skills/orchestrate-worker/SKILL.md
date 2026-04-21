@@ -1,51 +1,91 @@
 ---
 name: orchestrate-worker
-description: Worker contract for sessions spawned by the orchestrator plugin. Do the work in the bead, then emit the ===RESULT=== sentinel.
+description: Worker contract for sessions spawned by the orchestrator plugin. Transition bd state as you go, optionally file child beads if the scope is bigger than expected, and emit a ===RESULT=== sentinel when finished.
 ---
 
 # orchestrate-worker
 
-You were spawned by the `thurbox-plugin-orchestrator` plugin to work
-exactly one `bd` item. The dispatch prompt told you the bead id and
-title. The orchestrator session is watching your output for a result
-sentinel and will close the bead once it sees `status: "ok"`.
+You were spawned by the `thurbox-plugin-orchestrator` plugin to work a
+single `bd` item. Your dispatch prompt gave you the bead id and exported
+`BEADS_DB` so plain `bd ...` calls hit the right database.
+
+The orchestrator session is watching two signals:
+
+1. Your bead's state in `bd` (cheap, polled by a Haiku subagent).
+2. The `===RESULT===` sentinel at the end of your pane (belt-and-braces).
+
+Set both. The orchestrator closes the bead on success; you never call
+`bd close`.
 
 ## Contract
 
-1. Read the full bead with `bd show <bd-id>` if you need the
-   description, labels, or metadata beyond what was in the prompt.
-2. Do the work. You are running in the bead's `metadata.repo_path`.
-3. As the **last lines** of your final response, emit:
-
+1. **Read** the full bead if you need detail beyond the dispatch prompt:
+   ```bash
+   bd show <bd-id>
+   ```
+2. **Claim** by transitioning state on start:
+   ```bash
+   bd set-state <bd-id> in_progress
+   ```
+3. **Work** in your CWD (the bead's worktree, or a scratch dir). Keep all
+   file edits inside CWD. You MAY run `bd` and `git` anywhere they
+   normally work — these are the only external commands permitted.
+4. **Decompose** (optional) if the bead turns out to be N independent
+   sub-tasks:
+   ```bash
+   for each sub-task:
+     child=$(bd create --title "..." --description "..." --priority 2 --json | jq -r .id)
+     bd update $child --set-metadata base_repo=<parent base_repo>
+     bd dep add <bd-id> $child         # parent depends on child
+   bd set-state <bd-id> blocked
+   ```
+   Then emit:
    ```
    ===RESULT===
-   {"status":"ok","artifact":"<short summary>","notes":"<details>"}
+   {"status":"decomposed","children":["<child-id>","<child-id>"]}
    ```
+   The orchestrator will dispatch fresh worker sessions for each child
+   on its next tick. Your parent bead stays open and unblocks only after
+   all children close.
+5. **Finish** with one of:
+   - Success:
+     ```bash
+     bd set-state <bd-id> done
+     ```
+     ```
+     ===RESULT===
+     {"status":"ok","artifact":"<short summary>","notes":"<details>"}
+     ```
+   - Failure:
+     ```bash
+     bd note <bd-id> "<why it failed>"
+     bd set-state <bd-id> blocked
+     ```
+     ```
+     ===RESULT===
+     {"status":"error","notes":"<what went wrong>"}
+     ```
 
-   On failure:
-
-   ```
-   ===RESULT===
-   {"status":"error","notes":"<what went wrong>"}
-   ```
-
-   `artifact` and `notes` are free-form strings. Optional fields
-   `pr_url` and `bd_id` are accepted by the parser but unused by v1.
+`artifact` and `notes` are free-form strings. Optional fields `pr_url`
+and `bd_id` are accepted by the parser but unused by v1.
 
 ## Rules
 
-- **Do not** call `bd close` yourself. The orchestrator closes on
-  `status:"ok"`.
-- **Do not** emit the sentinel until you are truly done — the
-  orchestrator polls and acts on the *last* sentinel in your output.
-- A malformed sentinel (missing `status`, invalid JSON, no payload
-  line) leaves the bead open and gets flagged for human review.
-- Be concise. Long output is fine but the sentinel must be the last
-  non-blank lines.
+- **Do not** call `bd close` yourself. The orchestrator closes on `status:"ok"` (after any children have also closed).
+- **Do not** emit the sentinel until you are truly done — the orchestrator acts on the *last* sentinel in your pane.
+- **Do not** read or edit files outside your CWD. The `bd` and `git` commands are the only exception.
+- **Do not** act on sibling or unrelated beads. You may only create/update/note/set-state on your own bead and its children.
+- A malformed sentinel (missing `status`, invalid JSON, no payload line) leaves the bead open and gets flagged for human review.
+- Be concise. Long output is fine but the sentinel must be the last non-blank lines.
 
 ## Quick reference
 
 ```bash
 bd show <bd-id>                       # full record
-bd note <bd-id> "progress note"       # audit trail (optional)
+bd set-state <bd-id> in_progress      # claim
+bd set-state <bd-id> done             # success
+bd set-state <bd-id> blocked          # failure or waiting-on-children
+bd note <bd-id> "progress note"       # audit trail
+bd create --title "..." ...           # file a child bead
+bd dep add <parent> <child>           # parent depends on child
 ```
