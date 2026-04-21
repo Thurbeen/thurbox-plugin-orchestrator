@@ -79,12 +79,23 @@ The `orchestrate` skill runs a continuous, reactive loop:
    JSON line bucketing workers into `done / decomposed / blocked /
    in_progress`. The main orchestrator never reads pane output
    directly — keeps its context cheap.
-3. **React** to any new user prompt arriving mid-orchestration by
+3. **Supervise PRs** via a second **Haiku** `Task` subagent (every
+   2–3 poll ticks). The PR-watcher walks each live worker's PR on
+   origin with `gh pr list --head <branch> --json state,mergeable,mergeStateStatus,headRefOid`,
+   classifies into `conflicts / checks_failing / merged / closed /
+   clean / no_pr`, and marks each entry `notify:true/false` based
+   on KV `orch:pr_notified:<bd>` (re-notify only on new head SHA,
+   escalated state, or after a 30-minute cooldown). The orchestrator
+   fans out the reactions: nudge the worker session via
+   `thurbox-cli session send` for conflicts and red checks, run the
+   existing done-flow for `merged`, leave `closed` beads open with a
+   `bd note` for human review.
+4. **React** to any new user prompt arriving mid-orchestration by
    spawning a **Sonnet** `Task` subagent to decompose it into new
    beads, then filing them with `bd create` + `bd update
    --set-metadata` + `bd dep add`. Priority and dependencies re-order
    `bd ready` naturally; the next tick picks the new beads up.
-4. **Close** on `status:"ok"`: `bd close <id>`, clear kv, delete
+5. **Close** on `status:"ok"`: `bd close <id>`, clear kv, delete
    session. On `status:"error"`: leave the bead blocked, append a `bd
    note`, keep the session for inspection. On `status:"decomposed"`:
    leave the parent blocked on its children — they appear in `bd
@@ -98,6 +109,7 @@ Only the orchestrator calls `bd close`.
 State lives in `bd kv`:
 - `orch:bead:<bd-id>` → thurbox session uuid
 - `orch:session:<uuid>` → bd id
+- `orch:pr_notified:<bd-id>` → `<head_sha>|<iso>|<kind>` (last PR-watcher nudge, for dedup)
 
 ## Per-bead config
 
